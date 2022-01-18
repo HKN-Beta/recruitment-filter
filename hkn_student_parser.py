@@ -79,6 +79,8 @@ class WorkbookIterator:
     filenames = os.listdir(path)
     xlsxfilter = lambda name: os.path.splitext(name)[1] == '.xlsx'
     self.workbook_filenames = list(filter(xlsxfilter, filenames))
+    if len(self.workbook_filenames) == 0:
+      raise RuntimeError("No .xlsx files in directory")
     self.workbook_index = 0
     self.curr_workbook = pd.ExcelFile(self.workbook_filenames[0])
     self.curr_sheet_index = 0
