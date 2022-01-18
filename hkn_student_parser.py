@@ -1,4 +1,5 @@
 import re
+import os
 import math
 import datetime
 import pandas as pd
@@ -16,15 +17,11 @@ current_term = current_semester + ' ' \
 
 
 def main():
-  excelsheet_name = 'Record Copy - PUID Entry.xlsx'
-  workbook = pd.ExcelFile(excelsheet_name)
-
   seniors = list()
   juniors = list()
   sophomores = list()
   
-  for sheetname in workbook.sheet_names:
-    sheet = workbook.parse(sheetname)
+  for sheet in WorkbookIterator():
     student = Student(sheet)
     year = student.year_classification
     if year == 2:
@@ -72,6 +69,29 @@ def write_student_list_to_file(filename, students):
     for student in students:
       outline = "%s, %s" % (student.name, student.puid)
       outfile.write(outline)
+
+
+class WorkbookIterator:
+  def __init__(self, path='.'):
+    filenames = os.listdir(path)
+    xlsxfilter = lambda name: os.path.splitext(name)[1] == '.xlsx'
+    self.workbook_filenames = list(filter(xlsxfilter, filenames))
+    self.workbook_index = 0
+    self.curr_workbook = pd.ExcelFile(self.workbook_filenames[0])
+    self.curr_sheet_index = 0
+
+  def __iter__(self):
+    return self
+
+  def __next__(self):
+    if self.curr_sheet_index == len(self.curr_workbook.sheet_names):
+      self.workbook_index += 1
+      if self.workbook_index == len(self.workbook_filenames):
+        raise StopIteration
+      self.curr_workbook = pd.ExcelFile(self.workbook_filenames[0])
+    sheetname = self.curr_workbook.sheet_names[self.curr_sheet_index]
+    self.curr_sheet_index += 1
+    return self.curr_workbook.parse(sheetname)
 
 
 class Student:
