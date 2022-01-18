@@ -65,9 +65,12 @@ def sort_students_by_gpa(students):
   return students
 
 def write_student_list_to_file(filename, students):
+  # assumed students list is already filtered by filter_out_students
   with open(filename, "w") as outfile:
+    if len(students) > 0:
+      outfile.write("gpa cutoff:, %f\n" % students[-1].gpa)
     for student in students:
-      outline = "%s, %s" % (student.name, student.puid)
+      outline = "%s, %s\n" % (student.name, student.puid)
       outfile.write(outline)
 
 
