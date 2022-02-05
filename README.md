@@ -15,7 +15,7 @@ pip install -r requirements.txt
 1. Run Cognos 'record copy - PUID entry' report for **all ECE students**. (Note that these must be processed in batches, as Cognos has a limit of 1000 entries at once per report.)
 2. When Cognos reports are done in batches, put all the excel files (make sure has .xlsx extension) in same folder as the script.
 3. Run the python script. Make sure the script and the excel files are in the same working directory.
-  - May need to change the semester cutoff values in the main for loop if the stats don't look right
+    - May need to change the semester cutoff values in the main for loop if the stats don't look right
 4. It should output 3 csv files called `seniors.csv`, `juniors.csv`, and `sophomores.csv` with the names and PUIDs of the eligible candidates.
 5. Send these 3 files to the HKN faculty or staff advisor or whoever the point of contact is.
 
