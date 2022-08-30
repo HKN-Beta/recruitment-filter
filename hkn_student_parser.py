@@ -26,12 +26,13 @@ def main():
   wb_iter = WorkbookIterator()
   for sheet in tqdm.tqdm(wb_iter, desc="Parsing sheets"):
     student = Student(sheet)
+    # print(student)
     nsemesters = student.num_nonsummer_semesters
-    if nsemesters >=  8:
+    if nsemesters >  6:
       seniors.append(student)
-    elif nsemesters >= 5:
+    elif nsemesters > 4:
       juniors.append(student)
-    elif nsemesters >= 3:
+    elif nsemesters > 2:
       sophomores.append(student)
 
   print("Number of students parsed:", len(wb_iter))
@@ -50,6 +51,8 @@ def main():
   write_student_list_to_file("seniors.csv", seniors)
   write_student_list_to_file("juniors.csv", juniors)
   write_student_list_to_file("sophomores.csv", sophomores)
+
+
 
 def filter_out_students(students, top_percent):
   students = sort_students_by_gpa(students)
@@ -166,6 +169,12 @@ class Student:
         break
     self.num_ece_credits = num_ece_credits
     self.num_nonsummer_semesters = num_fallspring_semesters
+    
+  def __repr__(self):
+    return "Student({}, sems={}, creds={}, gpa={})".format(
+      self.name, self.num_nonsummer_semesters,
+      self.num_ece_credits, self.gpa
+    )
 
 
 if __name__ == "__main__":
