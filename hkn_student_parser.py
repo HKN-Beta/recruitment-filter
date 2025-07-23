@@ -601,4 +601,4 @@ def generate_sample_students(num_students=SAMPLE_DEFAULT_COUNT):
 
 if __name__ == "__main__":
   # To test with sample data, change to main(use_sample_data=True)
-  main(use_sample_data=True)
+  main(use_sample_data=False)
