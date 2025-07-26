@@ -18,6 +18,7 @@ function Test-Command {
     }
 }
 
+
 # Check if Python is installed
 Write-Host "Checking Python installation..."
 if (-not (Test-Command "python")) {
@@ -30,6 +31,31 @@ if (-not (Test-Command "python")) {
 
 Write-Host "Python detected:"
 python --version
+Write-Host
+
+# Check if we're in a git repository and pull latest changes
+Write-Host "Checking for git repository..."
+if (Test-Path ".git") {
+    Write-Host "Git repository detected. Checking for updates..."
+    
+    # Check if git is installed
+    if (Test-Command "git") {
+        Write-Host "Pulling latest changes from repository..."
+        git pull
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Repository updated successfully!" -ForegroundColor Green
+        } else {
+            Write-Warning "WARNING: Failed to pull latest changes from git repository"
+            Write-Host "You may need to resolve conflicts manually or check your internet connection"
+            Write-Host "Continuing with current files..."
+        }
+    } else {
+        Write-Warning "WARNING: Git is not installed or not in PATH"
+        Write-Host "Skipping repository update. Install Git from https://git-scm.com/ for automatic updates"
+    }
+} else {
+    Write-Host "Not a git repository. Skipping update check."
+}
 Write-Host
 
 # Check if virtual environment exists, create if needed
