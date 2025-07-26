@@ -26,13 +26,13 @@ JUNIOR_CUTOFF = 0.25   # 15% for juniors
 SOPHOMORE_CUTOFF = 0.20  # 10% for sophomores
 
 # Sample data generation parameters
-SAMPLE_GPA_MEAN = 3.2
+SAMPLE_GPA_MEAN = 3.5
 SAMPLE_GPA_STD = 0.5
 SAMPLE_MAJOR_WEIGHTS = [0.46, 0.53, 0.01]  # [EE, CMPE, Other]
-SAMPLE_GRADE_WEIGHTS = [0.40, 0.32, 0.28]  # [Sophomore, Junior, Senior]
+SAMPLE_GRADE_WEIGHTS = [0.32, 0.34, 0.34]  # [Sophomore, Junior, Senior]
 SAMPLE_ECE_CREDITS_PER_SEMESTER = 3.5 # number of ECE classes per semester
 SAMPLE_ECE_CREDITS_VARIATION = 2.0
-SAMPLE_DEFAULT_COUNT = 1743
+SAMPLE_DEFAULT_COUNT = 2177
 
 # Error logging
 ERROR_LOG = []  # Store errors for logging
@@ -50,7 +50,7 @@ def log_error(error_type, message, student_name=None, sheet_name=None):
   print(f"ERROR: {error_type} - {message}")
 
 
-def main(use_sample_data=False):
+def main(use_sample_data=False, bymajor=True):
   seniors = list()
   juniors = list()
   sophomores = list()
@@ -112,21 +112,36 @@ def main(use_sample_data=False):
   totjuniors = len(juniors) 
   totsophomores = len(sophomores) 
 
-  # Filter by major within each grade level
-  filtered_seniors = filter_students_by_major(seniors, SENIOR_CUTOFF)
-  filtered_juniors = filter_students_by_major(juniors, JUNIOR_CUTOFF)
-  filtered_sophomores = filter_students_by_major(sophomores, SOPHOMORE_CUTOFF)
-
-  print_stats_by_major("seniors", filtered_seniors, totseniors)
-  print_stats_by_major("juniors", filtered_juniors, totjuniors)
-  print_stats_by_major("sophomores", filtered_sophomores, totsophomores)
-
-  write_student_list_to_file_by_major("seniors.csv", filtered_seniors)
-  write_student_list_to_file_by_major("juniors.csv", filtered_juniors)
-  write_student_list_to_file_by_major("sophomores.csv", filtered_sophomores)
+  # Filter students based on bymajor parameter
+  if bymajor:
+    # Filter by major within each grade level
+    filtered_seniors = filter_students_by_major(seniors, SENIOR_CUTOFF)
+    filtered_juniors = filter_students_by_major(juniors, JUNIOR_CUTOFF)
+    filtered_sophomores = filter_students_by_major(sophomores, SOPHOMORE_CUTOFF)
+    
+    print_stats_by_major("seniors", filtered_seniors, totseniors)
+    print_stats_by_major("juniors", filtered_juniors, totjuniors)
+    print_stats_by_major("sophomores", filtered_sophomores, totsophomores)
+    
+    write_student_list_to_file_by_major("seniors.csv", filtered_seniors)
+    write_student_list_to_file_by_major("juniors.csv", filtered_juniors)
+    write_student_list_to_file_by_major("sophomores.csv", filtered_sophomores)
+  else:
+    # Filter without considering major - use original approach
+    filtered_seniors = filter_out_students(seniors, SENIOR_CUTOFF)
+    filtered_juniors = filter_out_students(juniors, JUNIOR_CUTOFF)
+    filtered_sophomores = filter_out_students(sophomores, SOPHOMORE_CUTOFF)
+    
+    print_stats("seniors", filtered_seniors, totseniors)
+    print_stats("juniors", filtered_juniors, totjuniors)
+    print_stats("sophomores", filtered_sophomores, totsophomores)
+    
+    write_student_list_to_file("seniors.csv", filtered_seniors)
+    write_student_list_to_file("juniors.csv", filtered_juniors)
+    write_student_list_to_file("sophomores.csv", filtered_sophomores)
 
   # Generate report file
-  generate_report("report.txt", filtered_seniors, filtered_juniors, filtered_sophomores, totseniors, totjuniors, totsophomores, use_sample_data, seniors, juniors, sophomores)
+  generate_report("report.txt", filtered_seniors, filtered_juniors, filtered_sophomores, totseniors, totjuniors, totsophomores, use_sample_data, seniors, juniors, sophomores, bymajor)
 
 
 
@@ -193,13 +208,6 @@ def filter_students_by_major(students, top_percent):
   
   return filtered_students
 
-def get_major_group(major):
-  """Get the filtering group for a major (EE, CMPE, or Other)"""
-  if major in ["EE", "CMPE"]:
-    return major
-  else:
-    return "Other"
-
 def group_students_by_major(students):
   """Group students by their major filtering group (EE, CMPE, Other)"""
   students_by_major = collections.defaultdict(list)
@@ -208,9 +216,8 @@ def group_students_by_major(students):
     if student.major is None:
       log_error("VALIDATION", "Student has no major assigned", student_name=student.name)
       continue
-    # Group by filtering category, not actual major
-    major_group = get_major_group(student.major)
-    students_by_major[major_group].append(student)
+    # Use the major_group property for filtering
+    students_by_major[student.major_group].append(student)
   
   return dict(students_by_major)
 
@@ -244,13 +251,13 @@ def write_student_list_to_file_by_major(filename, students):
       
       for student in major_students:
         if INCLUDE_GPA_IN_CSV:
-          outline = f"{major_group},{student.major},{student.name},{student.puid},{student.gpa:.2f}\n"
+          outline = f"{student.major_group},{student.major},{student.name},{student.puid},{student.gpa:.2f}\n"
         else:
-          outline = f"{major_group},{student.major},{student.name},{student.puid}\n"
+          outline = f"{student.major_group},{student.major},{student.name},{student.puid}\n"
         outfile.write(outline)
 
 
-def generate_report(filename, seniors, juniors, sophomores, totseniors, totjuniors, totsophomores, use_sample_data=False, unfiltered_seniors=None, unfiltered_juniors=None, unfiltered_sophomores=None):
+def generate_report(filename, seniors, juniors, sophomores, totseniors, totjuniors, totsophomores, use_sample_data=False, unfiltered_seniors=None, unfiltered_juniors=None, unfiltered_sophomores=None, bymajor=True):
   """Generate a comprehensive report file with all statistics"""
   with open(filename, "w") as outfile:
     # Header
@@ -261,6 +268,8 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write("HKN RECRUITMENT FILTER REPORT\n")
     outfile.write(f"Generated on: {datetime.date.today()}\n")
     outfile.write(f"Current term: {current_term}\n")
+    if not bymajor:
+      outfile.write("NOTE: Major-based filtering DISABLED - using grade-level filtering only\n")
     outfile.write("=" * 60 + "\n\n")
     
     # Errors and Concerns section
@@ -290,36 +299,37 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
     outfile.write(f"Total juniors parsed: {totjuniors} ({totjuniors / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n")
     outfile.write(f"Total sophomores parsed: {totsophomores} ({totsophomores / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n\n")
 
-    # Calculate total by major group across all grade levels
-    all_students = seniors + juniors + sophomores
-    major_counts = {}
-    for student in all_students:
-      major_group = get_major_group(student.major) if student.major else "Unknown"
-      major_counts[major_group] = major_counts.get(major_group, 0) + 1
-    
-    # Calculate total unfiltered students by major group to get percentage of major selected
-    if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
-      all_unfiltered_students = unfiltered_seniors + unfiltered_juniors + unfiltered_sophomores
-      unfiltered_major_counts = {}
-      for student in all_unfiltered_students:
-        major_group = get_major_group(student.major) if student.major else "Unknown"
-        unfiltered_major_counts[major_group] = unfiltered_major_counts.get(major_group, 0) + 1
-    
-    if major_counts:
-      outfile.write("Total invitations by major group (all grades):\n")
-      for major_group in sorted(major_counts.keys()):
-        count = major_counts[major_group]
-        if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
-          # Show percentage of that major group that was selected
-          total_in_major = unfiltered_major_counts.get(major_group, 0)
-          percentage = (count / total_in_major * 100) if total_in_major > 0 else 0
-          outfile.write(f"  {major_group}: {count} students ({percentage:.1f}% of {major_group} students)\n")
-        else:
-          # Fallback to original calculation
-          total_parsed = totseniors + totjuniors + totsophomores
-          percentage = (count / total_parsed * 100) if total_parsed > 0 else 0
-          outfile.write(f"  {major_group}: {count} students ({percentage:.1f}%)\n")
-      outfile.write("\n")
+    # Calculate total by major group across all grade levels (only if bymajor is True)
+    if bymajor:
+      all_students = seniors + juniors + sophomores
+      major_counts = {}
+      for student in all_students:
+        major_group = student.major_group if hasattr(student, 'major_group') else "Unknown"
+        major_counts[major_group] = major_counts.get(major_group, 0) + 1
+      
+      # Calculate total unfiltered students by major group to get percentage of major selected
+      if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
+        all_unfiltered_students = unfiltered_seniors + unfiltered_juniors + unfiltered_sophomores
+        unfiltered_major_counts = {}
+        for student in all_unfiltered_students:
+          major_group = student.major_group if hasattr(student, 'major_group') else "Unknown"
+          unfiltered_major_counts[major_group] = unfiltered_major_counts.get(major_group, 0) + 1
+      
+      if major_counts:
+        outfile.write("Total invitations by major group (all grades):\n")
+        for major_group in sorted(major_counts.keys()):
+          count = major_counts[major_group]
+          if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
+            # Show percentage of that major group that was selected
+            total_in_major = unfiltered_major_counts.get(major_group, 0)
+            percentage = (count / total_in_major * 100) if total_in_major > 0 else 0
+            outfile.write(f"  {major_group}: {count} students ({percentage:.1f}% of {major_group} students)\n")
+          else:
+            # Fallback to original calculation
+            total_parsed = totseniors + totjuniors + totsophomores
+            percentage = (count / total_parsed * 100) if total_parsed > 0 else 0
+            outfile.write(f"  {major_group}: {count} students ({percentage:.1f}%)\n")
+        outfile.write("\n")
     
     # Detailed statistics for each grade level
     for grade_name, students, total in [("SENIORS", seniors, totseniors),
@@ -328,21 +338,30 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write(f"{grade_name} STATISTICS\n")
       outfile.write("-" * 20 + "\n")
       
-      students_by_major = group_students_by_major(students)
       total_selected = len(students)
       percentage = (total_selected / total * 100) if total > 0 else 0
       
       outfile.write(f"Total {grade_name.lower()} selected: {total_selected} out of {total} ({percentage:.1f}%)\n")
       
-      if students_by_major:
-        outfile.write("Breakdown by major:\n")
-        for major in sorted(students_by_major.keys()):
-          major_students = students_by_major[major]
-          num_students = len(major_students)
-          gpa_cutoff = get_gpa_cutoff(major_students)
-          outfile.write(f"  {major}: {num_students} students, GPA cutoff: {gpa_cutoff:.2f}\n")
+      if bymajor:
+        # Show breakdown by major when filtering by major
+        students_by_major = group_students_by_major(students)
+        if students_by_major:
+          outfile.write("Breakdown by major:\n")
+          for major in sorted(students_by_major.keys()):
+            major_students = students_by_major[major]
+            num_students = len(major_students)
+            gpa_cutoff = get_gpa_cutoff(major_students)
+            outfile.write(f"  {major}: {num_students} students, GPA cutoff: {gpa_cutoff:.2f}\n")
+        else:
+          outfile.write("No students selected for this grade level.\n")
       else:
-        outfile.write("No students selected for this grade level.\n")
+        # Show overall GPA cutoff when not filtering by major
+        if students:
+          gpa_cutoff = get_gpa_cutoff(students)
+          outfile.write(f"GPA cutoff: {gpa_cutoff:.2f}\n")
+        else:
+          outfile.write("No students selected for this grade level.\n")
       
       outfile.write("\n")
     
@@ -355,8 +374,12 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
     outfile.write(f"  Sophomores: {SOPHOMORE_CUTOFF:.0%}\n")
     outfile.write("Additional filters:\n")
     outfile.write("  - Minimum 10 ECE credits\n")
-    outfile.write("  - Filtered by major (EE, CMPE, Other)\n")
-    outfile.write("  - Sorted by GPA within each major\n\n")
+    if bymajor:
+      outfile.write("  - Filtered by major (EE, CMPE, Other)\n")
+      outfile.write("  - Sorted by GPA within each major\n")
+    else:
+      outfile.write("  - Sorted by GPA (major filtering disabled)\n")
+    outfile.write("\n")
     
     # Sample data distributions (only shown when using sample data)
     if use_sample_data:
@@ -457,8 +480,11 @@ class Student:
       # Re-raise with more context
       raise Exception(f"{str(e)}")
     
-    # Keep track of non-EE/CMPE majors but don't overwrite the actual major
-    if self.major not in ["EE", "CMPE"]:
+    # Set major group for filtering and keep track of non-EE/CMPE majors
+    if self.major in ["EE", "CMPE"]:
+      self.major_group = self.major
+    else:
+      self.major_group = "Other"
       OTHER_MAJORS.add(self.major)
 
   def _get_identifying(self, sheet):
@@ -558,8 +584,8 @@ class Student:
       raise ValueError("Invalid ECE credits count")
     
   def __repr__(self):
-    return "Student({}, major={}, sems={}, creds={}, gpa={})".format(
-      self.name, self.major, self.num_nonsummer_semesters,
+    return "Student({}, major={}, major_group={}, sems={}, creds={}, gpa={})".format(
+      self.name, self.major, self.major_group, self.num_nonsummer_semesters,
       self.num_ece_credits, self.gpa
     )
 
@@ -600,6 +626,12 @@ def generate_sample_students(num_students=SAMPLE_DEFAULT_COUNT):
     # Generate major based on global weights
     student.major = random.choices(majors, weights=SAMPLE_MAJOR_WEIGHTS)[0]
     
+    # Set major group for filtering
+    if student.major in ["EE", "CMPE"]:
+      student.major_group = student.major
+    else:
+      student.major_group = "Other"
+    
     # Generate semester count using global weights
     semester_category = random.choices(['sophomore', 'junior', 'senior'], weights=SAMPLE_GRADE_WEIGHTS)[0]
     
@@ -622,5 +654,20 @@ def generate_sample_students(num_students=SAMPLE_DEFAULT_COUNT):
 
 
 if __name__ == "__main__":
-  # To test with sample data, change to main(use_sample_data=True)
-  main(use_sample_data=False)
+  import sys
+  
+  # Parse command line arguments
+  use_sample_data = "--sample" in sys.argv
+  bymajor = "--no-major" not in sys.argv  # Default to True unless --no-major is specified
+  
+  if "--help" in sys.argv or "-h" in sys.argv:
+    print("HKN Student Recruitment Filter")
+    print("Usage: python hkn_student_parser.py [options]")
+    print("Options:")
+    print("  --sample      Use sample data instead of Excel files")
+    print("  --no-major    Disable major-based filtering (use grade-level filtering only)")
+    print("  --help, -h    Show this help message")
+    sys.exit(0)
+  
+  # Run the main function with the parsed arguments
+  main(use_sample_data=use_sample_data, bymajor=bymajor)
