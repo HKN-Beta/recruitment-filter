@@ -193,15 +193,24 @@ def filter_students_by_major(students, top_percent):
   
   return filtered_students
 
+def get_major_group(major):
+  """Get the filtering group for a major (EE, CMPE, or Other)"""
+  if major in ["EE", "CMPE"]:
+    return major
+  else:
+    return "Other"
+
 def group_students_by_major(students):
-  """Group students by their major"""
+  """Group students by their major filtering group (EE, CMPE, Other)"""
   students_by_major = collections.defaultdict(list)
   
   for student in students:
     if student.major is None:
       log_error("VALIDATION", "Student has no major assigned", student_name=student.name)
       continue
-    students_by_major[student.major].append(student)
+    # Group by filtering category, not actual major
+    major_group = get_major_group(student.major)
+    students_by_major[major_group].append(student)
   
   return dict(students_by_major)
 
@@ -219,25 +228,25 @@ def print_stats_by_major(class_string, students, totnum):
     print(f"  {major}: {num_students} students, GPA cutoff: {gpa_cutoff:.2f}")
 
 def write_student_list_to_file_by_major(filename, students):
-  """Write student list to file, organized by major"""
-  students_by_major = group_students_by_major(students)
+  """Write student list to file, organized by major group but showing actual major"""
+  students_by_major_group = group_students_by_major(students)
   
   with open(filename, "w") as outfile:
     # Write header based on GPA flag
     if INCLUDE_GPA_IN_CSV:
-      outfile.write("Major,Name,PUID,GPA\n")
+      outfile.write("Major Group,Actual Major,Name,PUID,GPA\n")
     else:
-      outfile.write("Major,Name,PUID\n")
+      outfile.write("Major Group,Actual Major,Name,PUID\n")
     
-    for major in sorted(students_by_major.keys()):
-      major_students = students_by_major[major]
+    for major_group in sorted(students_by_major_group.keys()):
+      major_students = students_by_major_group[major_group]
       major_students = sort_alphabetically(major_students.copy())
       
       for student in major_students:
         if INCLUDE_GPA_IN_CSV:
-          outline = f"{major},{student.name},{student.puid},{student.gpa:.2f}\n"
+          outline = f"{major_group},{student.major},{student.name},{student.puid},{student.gpa:.2f}\n"
         else:
-          outline = f"{major},{student.name},{student.puid}\n"
+          outline = f"{major_group},{student.major},{student.name},{student.puid}\n"
         outfile.write(outline)
 
 
@@ -267,7 +276,6 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
         outfile.write(f"ERROR #{i}\n")
         outfile.write(f"  Type: {error['type']}\n")
         outfile.write(f"  Message: {error['message']}\n")
-        outfile.write(f"  Timestamp: {error['timestamp']}\n")
         if error['student_name']:
           outfile.write(f"  Student: {error['student_name']}\n")
         if error['sheet_name']:
@@ -282,35 +290,35 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
     outfile.write(f"Total juniors parsed: {totjuniors} ({totjuniors / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n")
     outfile.write(f"Total sophomores parsed: {totsophomores} ({totsophomores / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n\n")
 
-    # Calculate total by major across all grade levels
+    # Calculate total by major group across all grade levels
     all_students = seniors + juniors + sophomores
     major_counts = {}
     for student in all_students:
-      major = student.major if student.major else "Unknown"
-      major_counts[major] = major_counts.get(major, 0) + 1
+      major_group = get_major_group(student.major) if student.major else "Unknown"
+      major_counts[major_group] = major_counts.get(major_group, 0) + 1
     
-    # Calculate total unfiltered students by major to get percentage of major selected
+    # Calculate total unfiltered students by major group to get percentage of major selected
     if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
       all_unfiltered_students = unfiltered_seniors + unfiltered_juniors + unfiltered_sophomores
       unfiltered_major_counts = {}
       for student in all_unfiltered_students:
-        major = student.major if student.major else "Unknown"
-        unfiltered_major_counts[major] = unfiltered_major_counts.get(major, 0) + 1
+        major_group = get_major_group(student.major) if student.major else "Unknown"
+        unfiltered_major_counts[major_group] = unfiltered_major_counts.get(major_group, 0) + 1
     
     if major_counts:
-      outfile.write("Total invitations by major (all grades):\n")
-      for major in sorted(major_counts.keys()):
-        count = major_counts[major]
+      outfile.write("Total invitations by major group (all grades):\n")
+      for major_group in sorted(major_counts.keys()):
+        count = major_counts[major_group]
         if unfiltered_seniors and unfiltered_juniors and unfiltered_sophomores:
-          # Show percentage of that major that was selected
-          total_in_major = unfiltered_major_counts.get(major, 0)
+          # Show percentage of that major group that was selected
+          total_in_major = unfiltered_major_counts.get(major_group, 0)
           percentage = (count / total_in_major * 100) if total_in_major > 0 else 0
-          outfile.write(f"  {major}: {count} students ({percentage:.1f}% of {major} students)\n")
+          outfile.write(f"  {major_group}: {count} students ({percentage:.1f}% of {major_group} students)\n")
         else:
           # Fallback to original calculation
           total_parsed = totseniors + totjuniors + totsophomores
           percentage = (count / total_parsed * 100) if total_parsed > 0 else 0
-          outfile.write(f"  {major}: {count} students ({percentage:.1f}%)\n")
+          outfile.write(f"  {major_group}: {count} students ({percentage:.1f}%)\n")
       outfile.write("\n")
     
     # Detailed statistics for each grade level
@@ -375,6 +383,20 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write("  - PUIDs: Random 9-digit numbers\n")
       outfile.write(f"  - Default sample size: {SAMPLE_DEFAULT_COUNT} students\n\n")
     
+    # Other majors section (only shown when processing real data and OTHER_MAJORS is not empty)
+    if not use_sample_data and OTHER_MAJORS:
+      outfile.write("OTHER MAJORS ENCOUNTERED\n")
+      outfile.write("-" * 24 + "\n")
+      outfile.write("The following majors were classified as 'Other' during processing:\n\n")
+      
+      # Sort the majors alphabetically for consistent output
+      sorted_other_majors = sorted(OTHER_MAJORS)
+      for i, major in enumerate(sorted_other_majors, 1):
+        outfile.write(f"  {i:2d}. {major}\n")
+      
+      outfile.write(f"\nTotal unique 'Other' majors found: {len(OTHER_MAJORS)}\n")
+      outfile.write("Note: All non-EE and non-CMPE majors are grouped as 'Other' for filtering purposes.\n\n")
+    
     # Output files
     outfile.write("OUTPUT FILES\n")
     outfile.write("-" * 12 + "\n")
@@ -433,12 +455,15 @@ class Student:
       self._validate_data()
     except Exception as e:
       # Re-raise with more context
-      sheet_name = getattr(sheet, 'name', 'Unknown')
-      raise Exception(f"Error parsing student sheet '{sheet_name}': {str(e)}")
+      raise Exception(f"{str(e)}")
+    
+    # Keep track of non-EE/CMPE majors but don't overwrite the actual major
+    if self.major not in ["EE", "CMPE"]:
+      OTHER_MAJORS.add(self.major)
 
   def _get_identifying(self, sheet):
     try:
-      name_puid_str = sheet.iloc[4][1]
+      name_puid_str = sheet.iloc[4, 1]
       if pd.isna(name_puid_str) or not str(name_puid_str).strip():
         raise ValueError("Name/PUID field is empty or missing")
       
@@ -460,7 +485,7 @@ class Student:
 
   def _get_gpa(self, sheet):
     try:
-      gpa_value = sheet.iloc[7][9]
+      gpa_value = sheet.iloc[7, 9]
       if pd.isna(gpa_value):
         raise ValueError("GPA field is empty")
       
@@ -469,7 +494,7 @@ class Student:
     except (IndexError, KeyError) as e:
       raise ValueError(f"Could not find GPA at expected location (row 8, col 10): {str(e)}")
     except (ValueError, TypeError) as e:
-      raise ValueError(f"GPA value is not a valid number: {gpa_value}")
+      raise ValueError(f"GPA value is not a valid number: {gpa_value} - {str(e)}")
 
   def _get_year_and_credit_number(self, sheet):
     try:
@@ -481,22 +506,19 @@ class Student:
       
       for row in range(startrow, maxrow + 1):
         try:
-          rowval = sheet.iloc[row][0]
+          rowval = sheet.iloc[row, 0]
           if not isinstance(rowval, str):
             continue
           if 'Fall' in rowval or 'Spring' in rowval:
             num_fallspring_semesters += 1
             # Get the most recent major
             if row < len(sheet) and len(sheet.columns) > 8:
-              major_val = sheet.iloc[row][8]
+              major_val = sheet.iloc[row, 8]
               if not pd.isna(major_val):
-                self.major = str(major_val).strip()
-                if self.major not in ["EE", "CMPE"]:
-                  self.major = "Other"
-                  OTHER_MAJORS.add(self.major)
+                self.major = str(major_val).strip()    
 
           if 'ECE' in rowval and len(sheet.columns) > 9:
-            credits = sheet.iloc[row][9]
+            credits = sheet.iloc[row, 9]
             if not pd.isna(credits):
               try:
                 num_ece_credits += float(credits)
