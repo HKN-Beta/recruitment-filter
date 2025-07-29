@@ -1,146 +1,170 @@
-# HKN Recruitment Filter - PowerShell Run Script
-# This script activates virtual environment, installs/updates packages, and runs the recruitment filter
+# HKN Recruitment Filter - All-in-One Setup and Run Script
+# This script automates the entire process: installs dependencies, clones/updates the repo, sets up the Python environment, and runs the application.
 
-Write-Host "========================================"
-Write-Host "HKN Recruitment Filter Setup and Run"
-Write-Host "========================================"
-Write-Host
+# --- CONFIGURATION ---
+$repoUrl = "https://github.com/HKN-Beta/recruitment-filter.git"
+$activeBranch = "Fa2025"
+$venvName = "hknRecruitmentEnv"
+# --- END CONFIGURATION ---
+
 
 # Function to check if a command exists
 function Test-Command {
     param($CommandName)
-    try {
-        Get-Command $CommandName -ErrorAction Stop | Out-Null
-        return $true
-    }
-    catch {
-        return $false
-    }
+    # Use where.exe for robust executable checking in PATH
+    where.exe $CommandName 2>$null 1>$null
+    return $LASTEXITCODE -eq 0
 }
 
-
-# Check if Python is installed
-Write-Host "Checking Python installation..."
-if (-not (Test-Command "python")) {
-    Write-Error "ERROR: Python is not installed or not in PATH"
-    Write-Host "Please install Python from https://python.org and ensure it's added to PATH"
-    Write-Host
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host "Python detected:"
-python --version
-Write-Host
-
-# Check if we're in a git repository and pull latest changes
-Write-Host "Checking for git repository..."
-if (Test-Path ".git") {
-    Write-Host "Git repository detected. Checking for updates..."
-    
-    # Check if git is installed
-    if (Test-Command "git") {
-        Write-Host "Pulling latest changes from repository..."
-        git pull
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Repository updated successfully!" -ForegroundColor Green
-        } else {
-            Write-Warning "WARNING: Failed to pull latest changes from git repository"
-            Write-Host "You may need to resolve conflicts manually or check your internet connection"
-            Write-Host "Continuing with current files..."
-        }
-    } else {
-        Write-Warning "WARNING: Git is not installed or not in PATH"
-        Write-Host "Skipping repository update. Install Git from https://git-scm.com/ for automatic updates"
+# Function to run a command and exit on failure
+function Invoke-CommandOrExit {
+    param(
+        [string]$Command,
+        [string]$Arguments,
+        [string]$ErrorMessage,
+        [switch]$ShowOutput
+    )
+    # Use Invoke-Expression to correctly handle commands with multiple arguments
+    $FullCommand = "$Command $Arguments"
+    if ($ShowOutput) {
+        Invoke-Expression $FullCommand
     }
-} else {
-    Write-Host "Not a git repository. Skipping update check."
-}
-Write-Host
-
-# Check if virtual environment exists, create if needed
-if (-not (Test-Path "hknRecruitmentEnv\Scripts\activate.ps1")) {
-    Write-Host "Virtual environment not found. Creating one..."
-    python -m venv hknRecruitmentEnv
+    else {
+        Invoke-Expression $FullCommand > $null 2>&1
+    }
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "ERROR: Failed to create virtual environment"
+        Write-Host "`r`nERROR: $ErrorMessage" -ForegroundColor Red
         Read-Host "Press Enter to exit"
         exit 1
     }
 }
 
+# 1. Check and Install Dependencies if needed
+Write-Host "Checking dependencies..." -NoNewline
+$needsInstall = $false
+if (-not (Test-Command "git")) {
+    $needsInstall = $true
+}
+if (-not (Test-Command "python")) {
+    $needsInstall = $true
+}
+
+if ($needsInstall) {
+    Write-Host "`r$(' ' * 50)`rInstalling missing software..." -NoNewline
+    
+    # 1a. Check for Administrator Privileges
+    if (-Not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Host "`r`nRequesting Administrator privileges to install software..." -ForegroundColor Yellow
+        
+        # Restart the script with Administrator privileges
+        try {
+            Start-Process PowerShell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+            exit
+        }
+        catch {
+            Write-Host "ERROR: Failed to elevate privileges. Please run PowerShell as Administrator manually." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+
+    # 1b. Check for Winget
+    if (-not (Test-Command "winget")) {
+        Write-Host "`r`nERROR: Winget is not available on this system." -ForegroundColor Red
+        Write-Host "Please install The following to use this script:" -ForegroundColor Yellow
+        if (-not (Test-Command "python")) {
+            Write-Host "Python " -ForegroundColor Cyan
+        }
+        if (-not (Test-Command "git")) {
+            Write-Host "Git" -ForegroundColor Cyan
+        }
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    # 1c. Install missing software
+    if (-not (Test-Command "git")) {
+        Invoke-CommandOrExit "winget" "install --id Git.Git -e --source winget" "Failed to install Git."
+    }
+    if (-not (Test-Command "python")) {
+        Invoke-CommandOrExit "winget" "install --id Python.Python.3 -e --source winget" "Failed to install Python."
+    }
+    Write-Host "`r$(' ' * 50)`rDependencies installed successfully!" -ForegroundColor Green
+}
+else {
+    Write-Host "`r$(' ' * 50)`rDependencies verified!" -ForegroundColor Green
+}
+
+# 4. Git Repository Setup
+Write-Host "Setting up repository..." -NoNewline
+
+# Check if we're already in a git repository
+if (-not (Test-Path ".git")) {
+    # Check if repository folder already exists
+    $repoName = (Split-Path -Leaf $repoUrl) -replace '\.git$'
+    $repoPath = Join-Path $PWD $repoName
+    
+    if (Test-Path $repoPath) {
+        # Repository folder exists, navigate into it
+        Write-Host "`r$(' ' * 50)`rUsing existing repository..." -NoNewline
+        Set-Location $repoPath
+        
+        # Verify it's actually a git repository
+        if (-not (Test-Path ".git")) {
+            Write-Host "`r`nERROR: Directory '$repoName' exists but is not a git repository." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+    else {
+        # Clone the repository into current directory
+        Write-Host "`r$(' ' * 50)`rCloning repository..." -NoNewline
+        Invoke-CommandOrExit "git" "clone --branch $activeBranch $repoUrl" "Failed to clone repository." -ShowOutput
+        
+        # Change to the cloned repository directory
+        Set-Location $repoPath
+    }
+    
+    # Verify we're in the correct directory
+    if (-not (Test-Path "hkn_student_parser.py")) {
+        Write-Host "`r`nERROR: Python script not found in repository. Check repository contents." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+
+# Update repository
+Invoke-CommandOrExit "git" "fetch" "Failed to fetch from remote."
+Invoke-CommandOrExit "git" "checkout $activeBranch" "Failed to checkout branch '$activeBranch'."
+Invoke-CommandOrExit "git" "pull origin $activeBranch" "Failed to pull changes from '$activeBranch'."
+Write-Host "`r$(' ' * 50)`rRepository ready!" -ForegroundColor Green
+
+# 5. Python Virtual Environment Setup
+Write-Host "Setting up Python environment..." -NoNewline
+if (-not (Test-Path $venvName)) {
+    Invoke-CommandOrExit "python" "-m venv $venvName" "Failed to create virtual environment."
+}
+
 # Activate virtual environment
-Write-Host "Activating virtual environment..."
-& ".\hknRecruitmentEnv\Scripts\Activate.ps1"
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "ERROR: Failed to activate virtual environment"
-    Write-Host "You may need to run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+. ".\$venvName\Scripts\Activate.ps1"
+Write-Host "`r$(' ' * 50)`rPython environment ready!" -ForegroundColor Green
 
-# Check if pip is available
-if (-not (Test-Command "pip")) {
-    Write-Error "ERROR: pip is not installed or not available in virtual environment"
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+# 6. Install Dependencies
+Write-Host "Installing packages..." -NoNewline
+Invoke-CommandOrExit "python" "-m pip install --upgrade pip" "Failed to upgrade pip."
+Invoke-CommandOrExit "pip" "install -r requirements.txt" "Failed to install required packages from requirements.txt."
+Write-Host "`r$(' ' * 50)`rPackages installed!" -ForegroundColor Green
 
-Write-Host "Installing/updating required Python packages..."
-Write-Host "========================================"
+# 7. Run the Python Script
+Write-Host "Running recruitment filter..." -NoNewline
+Write-Host ""  # Move to next line for Python output
+Invoke-CommandOrExit "python" "hkn_student_parser.py" "Python script execution failed. Check the output above for errors." -ShowOutput
+Write-Host "Recruitment filter completed!" -ForegroundColor Green
 
-# Upgrade pip first
-Write-Host "Upgrading pip..."
-python -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "ERROR: Failed to upgrade pip"
-    Write-Host "Please check your internet connection and try again"
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+Write-Host "`nGenerated files: seniors.csv, juniors.csv, sophomores.csv, report.txt" -ForegroundColor Cyan
+Write-Host "Check report.txt for detailed summary." -ForegroundColor Cyan
 
-# Install/upgrade requirements
-Write-Host "Installing/upgrading packages from requirements.txt..."
-pip install --upgrade -r requirements.txt
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "ERROR: Failed to install required packages"
-    Write-Host "Please check your internet connection and try again"
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host
-Write-Host "Package installation completed successfully!" -ForegroundColor Green
-Write-Host
-
-Write-Host "Running HKN Recruitment Filter..."
-Write-Host "========================================"
-Write-Host
-
-# Run the main Python script
-python hkn_student_parser.py
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "ERROR: Script execution failed"
-    Write-Host "Please check the error messages above"
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "Script completed successfully!" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host
-
-Write-Host "Generated files:"
-Write-Host "- seniors.csv" -ForegroundColor Cyan
-Write-Host "- juniors.csv" -ForegroundColor Cyan
-Write-Host "- sophomores.csv" -ForegroundColor Cyan
-Write-Host "- report.txt" -ForegroundColor Cyan
-Write-Host
-
-Write-Host "Check the report.txt file for detailed statistics and any errors."
-Write-Host
-
-# Deactivate virtual environment
+# 8. Deactivate virtual environment
 deactivate
+Write-Host "`nAll tasks completed successfully!" -ForegroundColor Green
+Read-Host "Press Enter to exit"
