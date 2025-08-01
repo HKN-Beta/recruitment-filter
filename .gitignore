@@ -1,4 +1,6 @@
 *.csv
 *.xlsx
-report.txt
+reports/
 hknRecruitmentEnv/
+__pycache__/
+*.pyc

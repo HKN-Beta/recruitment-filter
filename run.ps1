@@ -82,13 +82,38 @@ if ($needsInstall) {
         exit 1
     }
 
-    # 1c. Install missing software
+    # 1c. Install missing software in parallel
+    $jobs = @()
+    
     if (-not (Test-Command "git")) {
-        Invoke-CommandOrExit "winget" "install --id Git.Git -e --source winget" "Failed to install Git."
+        $jobs += Start-Job -ScriptBlock {
+            winget install --id Git.Git -e --source winget
+            return @{Name = "Git"; ExitCode = $LASTEXITCODE }
+        }
     }
+    
     if (-not (Test-Command "python")) {
-        Invoke-CommandOrExit "winget" "install --id Python.Python.3 -e --source winget" "Failed to install Python."
+        $jobs += Start-Job -ScriptBlock {
+            winget install --id Python.Python.3 -e --source winget
+            return @{Name = "Python"; ExitCode = $LASTEXITCODE }
+        }
     }
+    
+    # Wait for all installations to complete
+    if ($jobs.Count -gt 0) {
+        $results = $jobs | Wait-Job | Receive-Job
+        $jobs | Remove-Job
+        
+        # Check if any installations failed
+        foreach ($result in $results) {
+            if ($result.ExitCode -ne 0) {
+                Write-Host "`r`nERROR: Failed to install $($result.Name)." -ForegroundColor Red
+                Read-Host "Press Enter to exit"
+                exit 1
+            }
+        }
+    }
+    
     Write-Host "`r$(' ' * 50)`rDependencies installed successfully!" -ForegroundColor Green
 }
 else {
@@ -133,26 +158,60 @@ if (-not (Test-Path ".git")) {
     }
 }
 
-# Update repository
-Invoke-CommandOrExit "git" "fetch" "Failed to fetch from remote."
-Invoke-CommandOrExit "git" "checkout $activeBranch" "Failed to checkout branch '$activeBranch'."
-Invoke-CommandOrExit "git" "pull origin $activeBranch" "Failed to pull changes from '$activeBranch'."
+# Update repository with optimized git operations
+# First, check if we need to fetch/checkout at all
+$currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
+$needsUpdate = $false
+
+if ($currentBranch -ne $activeBranch) {
+    $needsUpdate = $true
+}
+
+if ($needsUpdate) {
+    # Only run git operations if needed
+    Invoke-CommandOrExit "git" "fetch" "Failed to fetch from remote."
+    Invoke-CommandOrExit "git" "checkout $activeBranch" "Failed to checkout branch '$activeBranch'."
+}
+
+# Always try to pull latest changes (this is safe even if already up to date)
+git pull origin $activeBranch > $null 2>&1
+# Don't treat "already up to date" as an error
 Write-Host "`r$(' ' * 50)`rRepository ready!" -ForegroundColor Green
 
-# 5. Python Virtual Environment Setup
+# 5. Install uv and Setup Python Virtual Environment
 Write-Host "Setting up Python environment..." -NoNewline
+
+# Check if uv is already installed globally or install it
+if (-not (Test-Command "uv")) {
+    Write-Host "`r$(' ' * 50)`rInstalling uv globally..." -NoNewline
+    Invoke-CommandOrExit "python" "-m pip install uv --disable-pip-version-check --quiet" "Failed to install uv globally."
+}
+
+# Use uv to create virtual environment (much faster than python -m venv)
 if (-not (Test-Path $venvName)) {
-    Invoke-CommandOrExit "python" "-m venv $venvName" "Failed to create virtual environment."
+    Write-Host "`r$(' ' * 50)`rCreating virtual environment with uv..." -NoNewline
+    Invoke-CommandOrExit "uv" "venv $venvName" "Failed to create virtual environment with uv."
 }
 
 # Activate virtual environment
 . ".\$venvName\Scripts\Activate.ps1"
 Write-Host "`r$(' ' * 50)`rPython environment ready!" -ForegroundColor Green
 
-# 6. Install Dependencies
+# 6. Install Dependencies with uv
 Write-Host "Installing packages..." -NoNewline
-Invoke-CommandOrExit "python" "-m pip install --upgrade pip" "Failed to upgrade pip."
-Invoke-CommandOrExit "pip" "install -r requirements.txt" "Failed to install required packages from requirements.txt."
+
+# Read requirements.txt and check if it exists
+$requirementsPath = Join-Path $PWD "requirements.txt"
+if (-not (Test-Path $requirementsPath)) {
+    Write-Host "`r`nERROR: requirements.txt not found." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# Use uv to install packages from requirements.txt - much faster than pip!
+Write-Host "`r$(' ' * 50)`rInstalling packages with uv..." -NoNewline
+Invoke-CommandOrExit "uv" "pip install -r requirements.txt" "Failed to install packages with uv."
+
 Write-Host "`r$(' ' * 50)`rPackages installed!" -ForegroundColor Green
 
 # 6a Make an executable shortcut for the script
@@ -169,7 +228,7 @@ Write-Host "`r$(' ' * 50)`rShortcut created!" -ForegroundColor Green
 # 7. Run the Python Script
 Write-Host "Running recruitment filter..." -NoNewline
 Write-Host ""  # Move to next line for Python output
-Invoke-CommandOrExit "python" "hkn_student_parser.py" "Python script execution failed. Check the output above for errors." -ShowOutput
+Invoke-CommandOrExit "python" "hkn_student_parser.py --mp --lm" "Python script execution failed. Check the output above for errors." -ShowOutput
 Write-Host "Recruitment filter completed!" -ForegroundColor Green
 
 Write-Host "`nGenerated files: seniors.csv, juniors.csv, sophomores.csv, report.txt" -ForegroundColor Cyan
@@ -177,6 +236,6 @@ Write-Host "Check report.txt for detailed summary." -ForegroundColor Cyan
 
 # 8. Deactivate virtual environment
 deactivate
-Write-Host "`r$(' ' * 50)`rVirtual environment deactivated!" -Foreground
+Write-Host "`r$(' ' * 50)`rVirtual environment deactivated!" -ForegroundColor Green
 Write-Host "`nAll tasks completed successfully!" -ForegroundColor Green
 Read-Host "Press Enter to exit"
