@@ -155,6 +155,17 @@ Invoke-CommandOrExit "python" "-m pip install --upgrade pip" "Failed to upgrade 
 Invoke-CommandOrExit "pip" "install -r requirements.txt" "Failed to install required packages from requirements.txt."
 Write-Host "`r$(' ' * 50)`rPackages installed!" -ForegroundColor Green
 
+# 6a Make an executable shortcut for the script
+# Create a shortcut to this script
+$shortcutPath = Join-Path $PWD "HKN Recruitment Filter.lnk"
+$WshShell = New-Object -comObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut($shortcutPath)
+$Shortcut.TargetPath = "powershell.exe"
+$Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+$Shortcut.WorkingDirectory = $PWD.Path
+$Shortcut.Save()
+Write-Host "`r$(' ' * 50)`rShortcut created!" -ForegroundColor Green
+
 # 7. Run the Python Script
 Write-Host "Running recruitment filter..." -NoNewline
 Write-Host ""  # Move to next line for Python output
@@ -166,5 +177,6 @@ Write-Host "Check report.txt for detailed summary." -ForegroundColor Cyan
 
 # 8. Deactivate virtual environment
 deactivate
+Write-Host "`r$(' ' * 50)`rVirtual environment deactivated!" -Foreground
 Write-Host "`nAll tasks completed successfully!" -ForegroundColor Green
 Read-Host "Press Enter to exit"
