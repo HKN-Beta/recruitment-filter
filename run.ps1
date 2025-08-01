@@ -159,7 +159,11 @@ if (-not (Test-Path ".git")) {
 }
 
 # Update repository with optimized git operations
-# First, check if we need to fetch/checkout at all
+# First, handle potential git ownership issues
+$currentDir = $PWD.Path
+git config --global --add safe.directory $currentDir > $null 2>&1
+
+# Check if we need to fetch/checkout at all
 $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
 $needsUpdate = $false
 
@@ -169,13 +173,20 @@ if ($currentBranch -ne $activeBranch) {
 
 if ($needsUpdate) {
     # Only run git operations if needed
-    Invoke-CommandOrExit "git" "fetch" "Failed to fetch from remote."
-    Invoke-CommandOrExit "git" "checkout $activeBranch" "Failed to checkout branch '$activeBranch'."
+    try {
+        Invoke-CommandOrExit "git" "fetch origin" "Failed to fetch from remote."
+        Invoke-CommandOrExit "git" "checkout $activeBranch" "Failed to checkout branch '$activeBranch'."
+    }
+    catch {
+        Write-Host "`r$(' ' * 50)`rWarning: Git operations failed, continuing with existing code..." -ForegroundColor Yellow
+    }
+}
+else {
+    # Always try to pull latest changes (this is safe even if already up to date)
+    git pull origin $activeBranch > $null 2>&1
+    # Don't treat "already up to date" as an error
 }
 
-# Always try to pull latest changes (this is safe even if already up to date)
-git pull origin $activeBranch > $null 2>&1
-# Don't treat "already up to date" as an error
 Write-Host "`r$(' ' * 50)`rRepository ready!" -ForegroundColor Green
 
 # 5. Install uv and Setup Python Virtual Environment
