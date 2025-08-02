@@ -7,6 +7,10 @@ $activeBranch = "Fa2025"
 $venvName = "hknRecruitmentEnv"
 # --- END CONFIGURATION ---
 
+Write-Host "Works2"
+exit 0
+
+
 # Function to check if a command exists
 function Test-Command {
     param($CommandName)
