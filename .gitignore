@@ -4,3 +4,4 @@ reports/
 hknRecruitmentEnv/
 __pycache__/
 *.pyc
+*.lnk
