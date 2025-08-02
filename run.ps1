@@ -242,8 +242,13 @@ Write-Host ""  # Move to next line for Python output
 Invoke-CommandOrExit "python" "hkn_student_parser.py --mp --lm" "Python script execution failed. Check the output above for errors." -ShowOutput
 Write-Host "Recruitment filter completed!" -ForegroundColor Green
 
-Write-Host "`nGenerated files: seniors.csv, juniors.csv, sophomores.csv, report.txt" -ForegroundColor Cyan
-Write-Host "Check report.txt for detailed summary." -ForegroundColor Cyan
+# 7a. Generate Emails
+Write-Host "Generating emails..." -NoNewline
+Invoke-CommandOrExit "python" "generateEmails.py" "Failed to generate emails." -ShowOutput
+Write-Host "Emails generated successfully!" -ForegroundColor Green
+
+Write-Host "`nGenerated files: seniors.csv, juniors.csv, sophomores.csv, report.log, emails.csv" -ForegroundColor Cyan
+Write-Host "Check report.log for detailed summary." -ForegroundColor Cyan
 
 # 8. Deactivate virtual environment
 deactivate
