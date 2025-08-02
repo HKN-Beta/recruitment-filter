@@ -20,7 +20,7 @@ current_term = f"{current_semester} {current_year}"
 
 # File paths and output configuration
 INCLUDE_GPA_IN_CSV = False  # Set to True to include individual GPAs in CSV files (for testing)
-ACCEPTED_MAJORS = ["EE", "CMPE"]  # Accepted majors for filtering
+ACCEPTED_MAJORS = ["ECEB", "CMPE"]  # Accepted majors for filtering
 REPORTS_DIR = "reports"
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
@@ -28,7 +28,8 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 SENIORS_FILE_PATH = f"{REPORTS_DIR}/seniors.csv"
 JUNIORS_FILE_PATH = f"{REPORTS_DIR}/juniors.csv"
 SOPHOMORES_FILE_PATH = f"{REPORTS_DIR}/sophomores.csv"
-REPORT_FILE_PATH = f"{REPORTS_DIR}/report.txt"
+REPORT_FILE_PATH = f"{REPORTS_DIR}/report.log"
+ERROR_LOG_FILE_PATH = f"{REPORTS_DIR}/errors.log"
 
 # Cutoff percentages by grade level
 SENIOR_CUTOFF = 0.30   # 30% for seniors
@@ -68,6 +69,13 @@ def log_error(error_type, message, student_name=None, sheet_name=None):
   print(f"ERROR: {error_type} - {message}")
 
 
+def collect_other_majors(students):
+  """Collect other majors from a list of students for the global OTHER_MAJORS set"""
+  for student in students:
+    if hasattr(student, 'major') and student.major not in ACCEPTED_MAJORS:
+      OTHER_MAJORS.add(student.major)
+
+
 def classify_students_optimized(students):
   """Classify students in a single pass for better performance"""
   seniors = []
@@ -92,6 +100,7 @@ def process_single_file(filename):
   """Process a single Excel file and return all students found in it"""
   students = []
   file_errors = []
+  local_other_majors = set()  # Track other majors found in this process
   
   try:
     with pd.ExcelFile(filename, engine='calamine') as workbook:
@@ -104,13 +113,17 @@ def process_single_file(filename):
           student = Student(sheet)
           students.append(student)
           
+          # Collect other majors from this student
+          if hasattr(student, 'major') and student.major not in ACCEPTED_MAJORS:
+            local_other_majors.add(student.major)
+          
         except Exception as e:
           file_errors.append(("PARSING", f"Failed to parse student sheet: {str(e)}", None, sheet_name))
           
   except Exception as e:
     file_errors.append(("FILE", f"Failed to open file {filename}: {str(e)}", None, None))
     
-  return students, file_errors
+  return students, file_errors, local_other_majors
 
 
 # === MAIN PROCESSING FUNCTION ===
@@ -157,12 +170,14 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
           ))
         
         # Collect results and errors
-        for students, file_errors in results:
+        for students, file_errors, local_other_majors in results:
           all_students.extend(students)
           total_sheets += len(students)
           # Add errors to global error log
           for error_type, message, student_name, sheet_name in file_errors:
             log_error(error_type, message, student_name, sheet_name)
+          # Merge other majors from this process
+          OTHER_MAJORS.update(local_other_majors)
         
         # Classify students using optimized single-pass approach
         seniors, juniors, sophomores = classify_students_optimized(all_students)
@@ -196,6 +211,8 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
             log_error("PARSING", f"Failed to parse student sheet: {error_msg}", sheet_name=sheet_name)
             
           all_students = seniors + juniors + sophomores  # For compatibility with rest of code
+          # Collect other majors for the global set
+          collect_other_majors(all_students)
         else:
           # Standard processing with bulk validation
           all_students = []
@@ -212,6 +229,9 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
           for error_msg, sheet_name in parse_errors:
             log_error("PARSING", f"Failed to parse student sheet: {error_msg}", sheet_name=sheet_name)
           
+          # Collect other majors for the global set
+          collect_other_majors(all_students)
+          
           # Classify all students using optimized single-pass approach
           seniors, juniors, sophomores = classify_students_optimized(all_students)
         
@@ -222,6 +242,8 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
   if use_sample_data:
     # Classify sample students using optimized single-pass approach
     seniors, juniors, sophomores = classify_students_optimized(all_students)
+    # Collect other majors for the global set
+    collect_other_majors(all_students)
 
   processing_mode = "Multiprocessing" if use_multiprocessing else "Sequential"
   print(f"Parsing completed in {end - start} ({processing_mode} mode): {total_sheets/(end - start).total_seconds():.2f} sheets/sec")
@@ -311,10 +333,10 @@ def write_student_list_to_file(filename, students, by_major=False):
     with open(filename, "w") as outfile:
       # Write header based on GPA flag
       if INCLUDE_GPA_IN_CSV:
-        outfile.write("Major Group,Actual Major,Name,PUID,GPA\n")
+        outfile.write("Major Group,Actual Major,Last Name,First Name,PUID,GPA\n")
       else:
-        outfile.write("Major Group,Actual Major,Name,PUID\n")
-      
+        outfile.write("Major Group,Actual Major,Last Name,First Name,PUID\n")
+
       for major_group in sorted(students_by_major_group.keys()):
         major_students = students_by_major_group[major_group]
         major_students = sort_alphabetically(major_students.copy())
@@ -386,8 +408,37 @@ def group_students_by_major(students):
   return dict(students_by_major)
 
 
+def write_error_log(filename):
+  """Write detailed error information to a separate error log file"""
+  with open(filename, "w") as error_file:
+    error_file.write("=" * 60 + "\n")
+    error_file.write("HKN RECRUITMENT FILTER - ERROR LOG\n")
+    error_file.write(f"Generated on: {datetime.date.today()}\n")
+    error_file.write(f"Current term: {current_term}\n")
+    error_file.write("=" * 60 + "\n\n")
+    
+    if not ERROR_LOG:
+      error_file.write("No errors encountered during processing.\n")
+    else:
+      error_file.write(f"Total errors logged: {len(ERROR_LOG)}\n\n")
+      
+      for i, error in enumerate(ERROR_LOG, 1):
+        error_file.write(f"ERROR #{i}\n")
+        error_file.write(f"  Type: {error['type']}\n")
+        error_file.write(f"  Message: {error['message']}\n")
+        if error['student_name']:
+          error_file.write(f"  Student: {error['student_name']}\n")
+        if error['sheet_name']:
+          error_file.write(f"  Sheet: {error['sheet_name']}\n")
+        error_file.write("\n")
+
+
 def generate_report(filename, seniors, juniors, sophomores, totseniors, totjuniors, totsophomores, use_sample_data=False, unfiltered_seniors=None, unfiltered_juniors=None, unfiltered_sophomores=None, bymajor=True):
   """Generate a comprehensive report file with all statistics"""
+  
+  # Write detailed errors to separate error log file
+  write_error_log(ERROR_LOG_FILE_PATH)
+  
   with open(filename, "w") as outfile:
     # Header
     outfile.write("=" * 60 + "\n")
@@ -401,24 +452,15 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write("NOTE: Major-based filtering DISABLED - using grade-level filtering only\n")
     outfile.write("=" * 60 + "\n\n")
     
-    # Errors and Concerns section
+    # Simplified Errors and Concerns section
     outfile.write("ERRORS AND CONCERNS\n")
     outfile.write("-" * 20 + "\n")
     
     if not ERROR_LOG:
       outfile.write("No errors encountered during processing.\n\n")
     else:
-      outfile.write(f"Total errors logged: {len(ERROR_LOG)}\n\n")
-      
-      for i, error in enumerate(ERROR_LOG, 1):
-        outfile.write(f"ERROR #{i}\n")
-        outfile.write(f"  Type: {error['type']}\n")
-        outfile.write(f"  Message: {error['message']}\n")
-        if error['student_name']:
-          outfile.write(f"  Student: {error['student_name']}\n")
-        if error['sheet_name']:
-          outfile.write(f"  Sheet: {error['sheet_name']}\n")
-        outfile.write("\n")
+      outfile.write(f"Total errors logged: {len(ERROR_LOG)}\n")
+      outfile.write(f"Detailed error information can be found in: {ERROR_LOG_FILE_PATH}\n\n")
     
     # Overall summary
     outfile.write("OVERALL SUMMARY\n")
@@ -542,8 +584,7 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write("The following majors were classified as 'Other' during processing:\n\n")
       
       # Sort the majors alphabetically for consistent output
-      sorted_other_majors = sorted(OTHER_MAJORS)
-      for i, major in enumerate(sorted_other_majors, 1):
+      for i, major in enumerate(OTHER_MAJORS, 1):
         outfile.write(f"  {i:2d}. {major}\n")
       
       outfile.write(f"\nTotal unique 'Other' majors found: {len(OTHER_MAJORS)}\n")
@@ -631,12 +672,15 @@ class Student:
       # Re-raise with more context
       raise Exception(f"{str(e)}")
     
-    # Set major group for filtering and keep track of non-EE/CMPE majors
-    if self.major in ["EE", "CMPE"]:
+    # Set major group for filtering
+    if self.major in ACCEPTED_MAJORS:
       self.major_group = self.major
     else:
       self.major_group = "Other"
-      OTHER_MAJORS.add(self.major)
+      # Only add to global OTHER_MAJORS if we're not in multiprocessing mode
+      # (multiprocessing mode will handle this separately in the main process)
+      if mp.current_process().name == 'MainProcess':
+        OTHER_MAJORS.add(self.major)
 
   def _get_identifying(self, sheet):
     try:
@@ -820,7 +864,7 @@ def generate_sample_students(num_students=SAMPLE_DEFAULT_COUNT):
                 "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen", "Hill", "Flores",
                 "Green", "AdAMS", "Nelson", "Baker", "Hall", "Rivera", "Campbell", "Mitchell", "Carter", "Roberts"]
   
-  majors = ["EE", "CMPE", "Other"]
+  majors = ACCEPTED_MAJORS + ["Other"]  # Include 'Other' for non-EE/CMPE majors
   
   students = []
   
