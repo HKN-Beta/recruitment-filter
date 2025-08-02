@@ -10,7 +10,6 @@ $venvName = "hknRecruitmentEnv"
 Write-Host "Works3"
 
 
-
 # Function to check if a command exists
 function Test-Command {
     param($CommandName)
