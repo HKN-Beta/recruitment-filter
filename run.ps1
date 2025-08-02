@@ -7,10 +7,6 @@ $activeBranch = "Fa2025"
 $venvName = "hknRecruitmentEnv"
 # --- END CONFIGURATION ---
 
-Write-Host "Works"
-exit 0
-
-
 # Function to check if a command exists
 function Test-Command {
     param($CommandName)
@@ -185,9 +181,17 @@ if ($needsUpdate) {
     }
 }
 else {
-    # Always try to pull latest changes (this is safe even if already up to date)
+    # Always try to pull latest changes and check if there was an update
+    $beforeCommit = git rev-parse HEAD 2>$null
     git pull origin $activeBranch > $null 2>&1
-    # Don't treat "already up to date" as an error
+    $afterCommit = git rev-parse HEAD 2>$null
+    
+    # If the commit hash changed, there was an update
+    if ($beforeCommit -ne $afterCommit) {
+        Write-Host "`r`nScript updated! Please rerun the script to use the latest version." -ForegroundColor Yellow
+        Read-Host "Press Enter to exit"
+        exit 0
+    }
 }
 
 Write-Host "`r$(' ' * 50)`rRepository ready!" -ForegroundColor Green
