@@ -32,7 +32,7 @@ REPORT_FILE_PATH = f"{REPORTS_DIR}/report.log"
 ERROR_LOG_FILE_PATH = f"{REPORTS_DIR}/errors.log"
 
 # Cutoff percentages by grade level
-SENIOR_CUTOFF = 0.30   # 30% for seniors
+SENIOR_CUTOFF = 0.33   # 30% for seniors
 JUNIOR_CUTOFF = 0.25   # 25% for juniors
 SOPHOMORE_CUTOFF = 0.20  # 20% for sophomores
 
@@ -81,6 +81,7 @@ def classify_students_optimized(students):
   seniors = []
   juniors = []
   sophomores = []
+  underclassmen = []  # To track underclassmen if needed
   
   # Single pass classification
   for student in students:
@@ -91,9 +92,11 @@ def classify_students_optimized(students):
       juniors.append(student)
     elif classification == "sophomore":
       sophomores.append(student)
+    else:
+      underclassmen.append(student)
     # Note: underclassmen are not included in any category
-  
-  return seniors, juniors, sophomores
+
+  return seniors, juniors, sophomores, underclassmen
 
 
 def process_single_file(filename):
@@ -180,7 +183,7 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
           OTHER_MAJORS.update(local_other_majors)
         
         # Classify students using optimized single-pass approach
-        seniors, juniors, sophomores = classify_students_optimized(all_students)
+        seniors, juniors, sophomores, underclassmen = classify_students_optimized(all_students)
       else:
         # Use optimized sequential processing for real Excel data
         wb_iter = FastWorkbookIterator()
@@ -233,15 +236,15 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
           collect_other_majors(all_students)
           
           # Classify all students using optimized single-pass approach
-          seniors, juniors, sophomores = classify_students_optimized(all_students)
-        
+          seniors, juniors, sophomores, underclassmen = classify_students_optimized(all_students)
+
         total_sheets = len(wb_iter)
   end = datetime.datetime.now()
   
   # Handle classification for sample data mode
   if use_sample_data:
     # Classify sample students using optimized single-pass approach
-    seniors, juniors, sophomores = classify_students_optimized(all_students)
+    seniors, juniors, sophomores, underclassmen = classify_students_optimized(all_students)
     # Collect other majors for the global set
     collect_other_majors(all_students)
 
@@ -251,10 +254,11 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
   if use_sample_data:
     print(f"Generated {len(seniors) + len(juniors) + len(sophomores)} sample students")
   else:
-    print(f"Successfully parsed {len(seniors) + len(juniors) + len(sophomores)} students from {total_sheets} sheets")
+    print(f"Successfully parsed {len(seniors) + len(juniors) + len(sophomores) + len(underclassmen)} students from {total_sheets} sheets")
   totseniors = len(seniors) 
   totjuniors = len(juniors) 
   totsophomores = len(sophomores) 
+  totunderclassmen = len(underclassmen)
 
   # Filter students based on bymajor parameter
   # Process each grade level with consolidated function
@@ -263,14 +267,13 @@ def main(use_sample_data=False, bymajor=True, use_multiprocessing=False, low_mem
   filtered_sophomores = process_grade_level(sophomores, "sophomores", totsophomores, SOPHOMORE_CUTOFF, bymajor)
 
   # Generate report file
-  generate_report(REPORT_FILE_PATH, filtered_seniors, filtered_juniors, filtered_sophomores, totseniors, totjuniors, totsophomores, use_sample_data, seniors, juniors, sophomores, bymajor)
+  generate_report(REPORT_FILE_PATH, filtered_seniors, filtered_juniors, filtered_sophomores, totseniors, totjuniors, totsophomores, totunderclassmen, use_sample_data, seniors, juniors, sophomores, bymajor)
 
 
 # === STUDENT FILTERING FUNCTIONS ===
 
 
 def filter_out_students(students, top_percent):
-  students = sort_students_by_gpa(students)
   students = take_only_top_percentile(students, top_percent)
   students = remove_less_than_10_ece_credits(students)
   return students
@@ -289,6 +292,7 @@ def remove_less_than_10_ece_credits(students):
 
 def take_only_top_percentile(students, top_percent):
   """Take top percentage of students (assumes already sorted by GPA)"""
+  students = sort_students_by_gpa(students)
   index_cutoff = math.ceil(len(students) * top_percent)
   return students[:index_cutoff]
 
@@ -339,7 +343,8 @@ def write_student_list_to_file(filename, students, by_major=False):
 
       for major_group in sorted(students_by_major_group.keys()):
         major_students = students_by_major_group[major_group]
-        major_students = sort_alphabetically(major_students.copy())
+        major_students = sort_students_by_gpa(major_students.copy())
+        # major_students = sort_alphabetically(major_students.copy())
         
         for student in major_students:
           if INCLUDE_GPA_IN_CSV:
@@ -433,7 +438,7 @@ def write_error_log(filename):
         error_file.write("\n")
 
 
-def generate_report(filename, seniors, juniors, sophomores, totseniors, totjuniors, totsophomores, use_sample_data=False, unfiltered_seniors=None, unfiltered_juniors=None, unfiltered_sophomores=None, bymajor=True):
+def generate_report(filename, seniors, juniors, sophomores, totseniors, totjuniors, totsophomores, totunderclassmen, use_sample_data=False, unfiltered_seniors=None, unfiltered_juniors=None, unfiltered_sophomores=None, bymajor=True):
   """Generate a comprehensive report file with all statistics"""
   
   # Write detailed errors to separate error log file
@@ -465,10 +470,11 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
     # Overall summary
     outfile.write("OVERALL SUMMARY\n")
     outfile.write("-" * 20 + "\n")
-    outfile.write(f"Total students parsed: {totseniors + totjuniors + totsophomores}\n")
-    outfile.write(f"Total seniors parsed: {totseniors} ({totseniors / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n")
-    outfile.write(f"Total juniors parsed: {totjuniors} ({totjuniors / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n")
-    outfile.write(f"Total sophomores parsed: {totsophomores} ({totsophomores / (totseniors + totjuniors + totsophomores) * 100:.1f}%)\n\n")
+    outfile.write(f"Total students parsed: {totseniors + totjuniors + totsophomores + totunderclassmen}\n")
+    outfile.write(f"Total seniors parsed (90+): {totseniors} ({totseniors / (totseniors + totjuniors + totsophomores + totunderclassmen) * 100:.1f}%)\n")
+    outfile.write(f"Total juniors parsed (60+): {totjuniors} ({totjuniors / (totseniors + totjuniors + totsophomores + totunderclassmen) * 100:.1f}%)\n")
+    outfile.write(f"Total sophomores parsed (30+): {totsophomores} ({totsophomores / (totseniors + totjuniors + totsophomores + totunderclassmen) * 100:.1f}%)\n")
+    outfile.write(f"Total underclassmen parsed (<30): {totunderclassmen} ({totunderclassmen / (totseniors + totjuniors + totsophomores + totunderclassmen) * 100:.1f}%)\n\n")
 
     # Calculate total by major group across all grade levels (only if bymajor is True)
     if bymajor:
@@ -565,11 +571,11 @@ def generate_report(filename, seniors, juniors, sophomores, totseniors, totjunio
       outfile.write(f"  - CMPE: {SAMPLE_MAJOR_WEIGHTS[1]:.0%}\n")
       outfile.write(f"  - Other: {SAMPLE_MAJOR_WEIGHTS[2]:.0%}\n\n")
       outfile.write("Grade Level Distribution:\n")
-      outfile.write(f"  - Sophomores (3-4 semesters): {SAMPLE_GRADE_WEIGHTS[0]:.0%}\n")
-      outfile.write(f"  - Juniors (5-6 semesters): {SAMPLE_GRADE_WEIGHTS[1]:.0%}\n")
-      outfile.write(f"  - Seniors (7-10 semesters): {SAMPLE_GRADE_WEIGHTS[2]:.0%}\n\n")
+      outfile.write(f"  - Sophomores (30-59 credit hours): {SAMPLE_GRADE_WEIGHTS[0]:.0%}\n")
+      outfile.write(f"  - Juniors (60-89 credit hours): {SAMPLE_GRADE_WEIGHTS[1]:.0%}\n")
+      outfile.write(f"  - Seniors (90+ credit hours): {SAMPLE_GRADE_WEIGHTS[2]:.0%}\n\n")
       outfile.write("ECE Credits:\n")
-      outfile.write(f"  - Base: {SAMPLE_ECE_CREDITS_PER_SEMESTER} credits per semester\n")
+      outfile.write(f"  - Base: {SAMPLE_ECE_CREDITS_PER_SEMESTER} credits per credit-year\n")
       outfile.write(f"  - Random variation: Normal(0, {SAMPLE_ECE_CREDITS_VARIATION})\n")
       outfile.write("  - Minimum: 0 credits\n\n")
       outfile.write("Names and PUIDs:\n")
@@ -721,83 +727,87 @@ class Student:
 
   def _get_year_and_credit_number(self, sheet):
     try:
+      # Get total credit hours from E9 (row 8, column 4 in 0-indexed pandas)
+      try:
+        total_credit_hours = sheet.iat[7, 5]  # E9 = row 7, column 5 ; 3 to include transfer credits
+        if pd.isna(total_credit_hours):
+          raise ValueError("Total credit hours field is empty")
+        self.total_credit_hours = float(total_credit_hours)
+      except (IndexError, KeyError) as e:
+        raise ValueError(f"Could not find total credit hours at E9: {str(e)}")
+      except (ValueError, TypeError) as e:
+        raise ValueError(f"Total credit hours value is not a valid number: {total_credit_hours} - {str(e)}")
+      
+      # Get ECE credits and major from transcript data
       startrow = 10
       maxrow = len(sheet) - 1
-      num_fallspring_semesters = 0
+      # print(f"DEBUG - Student {self.name if hasattr(self, 'name') else 'Unknown'}: Processing transcript rows {startrow} to {maxrow}")
       num_ece_credits = 0
       self.major = None  # Initialize major to None
       
-      # More efficient approach: get the data we need in fewer operations
       if len(sheet.columns) > 0 and maxrow >= startrow:
-        # Get the range of rows we need to examine
         end_row = min(maxrow + 1, len(sheet))
-        
-        # Pre-check if we have the columns we need
         has_major_col = len(sheet.columns) > 8
         has_credits_col = len(sheet.columns) > 9
         
-        # Robust vectorized operations using pandas
         if end_row > startrow:
-          # Extract the column data we need in bulk - more efficient slicing
           row_slice = slice(startrow, end_row)
           col0_data = sheet.iloc[row_slice, 0]
-          
-          # Convert to string only once and handle NaN values efficiently
-          # Use .astype(str) which handles all data types, including NaN -> 'nan'
           col0_str = col0_data.astype(str).fillna('')
           
           # Early termination optimization: find current term and limit processing
           current_term_mask = col0_str == current_term
           if current_term_mask.any():
-            # Get the first occurrence index and limit our processing
             current_term_idx = current_term_mask.idxmax() - startrow
-            # Slice data up to current term for more efficient processing
             col0_str = col0_str.iloc[:current_term_idx + 1]
-            # Update row_slice for consistent indexing
             row_slice = slice(startrow, startrow + current_term_idx + 1)
           
-          # Use pre-compiled regex patterns for maximum efficiency
           fall_spring_mask = col0_str.str.contains(FALL_SPRING_PATTERN, na=False, regex=True)
-          ece_mask = col0_str.str.contains(ECE_PATTERN, na=False, regex=True)
           
-          # Count semesters with vectorized sum
-          num_fallspring_semesters = int(fall_spring_mask.sum())
-          
-          # Streamlined most recent major extraction
+          # Get most recent major (only from fall/spring semesters)
           if has_major_col and fall_spring_mask.any():
-            # Get major column values for the relevant row range
             major_series = sheet.iloc[row_slice, 8]
-            # Filter to only fall/spring semesters and get the last valid one
             valid_majors = major_series[fall_spring_mask].dropna()
             if not valid_majors.empty:
-              # Get the most recent (last) major
               self.major = str(valid_majors.iloc[-1]).strip()
           
-          # Streamlined ECE credit summation
-          if has_credits_col and ece_mask.any():
-            # Get credits column values for the relevant row range
-            credits_series = sheet.iloc[row_slice, 9]
-            # Sum only credits from ECE rows after coercing to numeric
-            # pd.to_numeric with errors='coerce' converts invalid values to NaN
-            ece_credits_numeric = pd.to_numeric(credits_series[ece_mask], errors='coerce')
-            # .sum() automatically ignores NaN values
-            num_ece_credits = float(ece_credits_numeric.sum())
+          # Sum ECE credits: if col 0 starts with ECE, sum the credits in col J (column 9)
+          # NOTE: ECE credits should be counted from ALL terms, not just fall/spring
+          if has_credits_col:
+            # Check if lines start with ECE pattern (not just contain it)
+            ece_start_mask = col0_str.str.startswith('ECE', na=False)
+            if ece_start_mask.any():
+              credits_series = sheet.iloc[row_slice, 9]  # Column J (0-indexed column 9)
+              
+              # Debug: Print ECE classes detected
+              # ece_rows = col0_str[ece_start_mask]
+              # ece_credits = credits_series[ece_start_mask]
+              # print(f"DEBUG - Student {self.name if hasattr(self, 'name') else 'Unknown'}: Found {len(ece_rows)} ECE classes:")
+              # for idx, (course_line, credits) in enumerate(zip(ece_rows, ece_credits)):
+              #   print(f"  {idx+1}. {course_line} -> {credits} credits")
+              
+              # Sum only credits from rows that start with ECE
+              ece_credits_numeric = pd.to_numeric(credits_series[ece_start_mask], errors='coerce')
+              num_ece_credits = float(ece_credits_numeric.sum())
+              # print(f"  Total ECE credits for {self.name if hasattr(self, 'name') else 'Unknown'}: {num_ece_credits}")
+              # print()
       
       self.num_ece_credits = num_ece_credits
-      self.num_nonsummer_semesters = num_fallspring_semesters
       
-      # Classify student by semester count
-      if num_fallspring_semesters > 6:
+      # Classify student by total credit hours divided by 30
+      credit_year = self.total_credit_hours / 30.0
+      
+      if credit_year >= 3.0:  # 90+ credit hours
         self.classification = "senior"
-      elif num_fallspring_semesters > 4:
+      elif credit_year >= 2.0:  # 60-89 credit hours
         self.classification = "junior"
-      elif num_fallspring_semesters > 2:
+      elif credit_year >= 1.0:  # 30-59 credit hours
         self.classification = "sophomore"
-      else:
-        self.classification = "underclassman"  # For students with 2 or fewer semesters
+      else:  # 0-29 credit hours
+        self.classification = "underclassman"
       
     except Exception as e:
-      raise ValueError(f"Error parsing semester/credit data: {str(e)}")
+      raise ValueError(f"Error parsing credit/transcript data: {str(e)}")
 
   def _validate_data(self):
     """Validate parsed student data for reasonableness"""
@@ -813,8 +823,8 @@ class Student:
     if self.gpa < 0 or self.gpa > 4:  # Allow some margin for different GPA scales
       log_error("VALIDATION", f"Unusual GPA value: {self.gpa}")
     
-    if self.num_nonsummer_semesters < 0:
-      raise ValueError("Invalid semester count")
+    if self.total_credit_hours < 0:
+      raise ValueError("Invalid total credit hours")
     
     if self.num_ece_credits < 0:
       raise ValueError("Invalid ECE credits count")
@@ -835,12 +845,12 @@ class Student:
     return self.classification == "sophomore"
   
   def is_underclassman(self):
-    """Check if student is classified as an underclassman (<=2 semesters)"""
+    """Check if student is classified as an underclassman (<30 credit hours)"""
     return self.classification == "underclassman"
     
   def __repr__(self):
-    return "Student({}, classification={}, major={}, major_group={}, sems={}, creds={}, gpa={})".format(
-      self.name, self.classification, self.major, self.major_group, self.num_nonsummer_semesters,
+    return "Student({}, classification={}, major={}, major_group={}, total_credits={}, ece_creds={}, gpa={})".format(
+      self.name, self.classification, self.major, self.major_group, self.total_credit_hours,
       self.num_ece_credits, self.gpa
     )
 
@@ -889,23 +899,24 @@ def generate_sample_students(num_students=SAMPLE_DEFAULT_COUNT):
     else:
       student.major_group = "Other"
     
-    # Generate semester count using global weights
+    # Generate classification and total credit hours using global weights
     semester_category = random.choices(['sophomore', 'junior', 'senior'], weights=SAMPLE_GRADE_WEIGHTS)[0]
     
     if semester_category == 'sophomore':
-      student.num_nonsummer_semesters = random.randint(3, 4)
+      student.total_credit_hours = random.randint(30, 59)  # 1-2 years
       student.classification = 'sophomore'
     elif semester_category == 'junior':
-      student.num_nonsummer_semesters = random.randint(5, 6)
+      student.total_credit_hours = random.randint(60, 89)  # 2-3 years
       student.classification = 'junior'
     else:  # senior
-      student.num_nonsummer_semesters = random.randint(7, 10)
+      student.total_credit_hours = random.randint(90, 150)  # 3+ years
       student.classification = 'senior'
     
-    # Generate ECE credits using global parameters
-    base_credits = student.num_nonsummer_semesters * SAMPLE_ECE_CREDITS_PER_SEMESTER # min 3 * 3.5 = 10.5
+    # Generate ECE credits based on credit hours
+    credit_years = student.total_credit_hours / 30.0
+    base_ece_credits = credit_years * SAMPLE_ECE_CREDITS_PER_SEMESTER  # this is kinda broken??
     variation = random.normalvariate(0, SAMPLE_ECE_CREDITS_VARIATION)
-    student.num_ece_credits = max(0, base_credits + variation)
+    student.num_ece_credits = max(0, base_ece_credits + variation)
     student.num_ece_credits = round(student.num_ece_credits, 1)
     
     students.append(student)
